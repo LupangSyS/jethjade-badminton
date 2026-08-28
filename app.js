@@ -1,7 +1,16 @@
 // ==========================================
-// 🏸 BADMINTON MANAGER PRO - SCRIPT
+// 🛡️ ระบบป้องกันการโดนแฮกผ่านการพิมพ์ชื่อ (XSS)
 // ==========================================
-
+function sanitizeHTML(str) {
+    if (!str) return '';
+    return str.replace(/[&<>'"]/g, tag => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        "'": '&#39;',
+        '"': '&quot;'
+    }[tag] || tag));
+}
 
 // --- Persistence & State Management ---
 const STORAGE_KEY = 'BADMINTON_MANAGER_V7_DATA';
@@ -734,8 +743,8 @@ function resolveGame(winningTeamIdx) {
         const newLog = {
             time: new Date().toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'}),
             court: activeGameResolveCourtId+1,
-            winners: winners.map(p=>p.name).join(', '),
-            losers: losers.map(p=>p.name).join(', '),
+            winners: winners.map(p=>sanitizeHTML(p.name)).join(', '),
+            losers: losers.map(p=>sanitizeHTML(p.name)).join(', '),
             duration: formatTime(court.timer),
         };
         matchLogs.unshift(newLog);
@@ -901,7 +910,7 @@ function updateDashboard() {
         const displayWins = scope === 'today' ? (p.todayWins || 0) : (p.wins || 0);
         const rate = displayGames > 0 ? Math.round((displayWins / displayGames) * 100) : 0;
         
-        return `<tr><td>${medal} ${rank}</td><td>${p.name}</td><td style="font-weight:bold; color:#2980b9;">${p.mmr || 0}</td><td>${displayGames}</td><td>${displayWins}</td><td>${rate}%</td></tr>`;
+        return `<tr><td>${medal} ${rank}</td><td>${sanitizeHTML(p.name)}</td><td style="font-weight:bold; color:#2980b9;">${p.mmr || 0}</td><td>${displayGames}</td><td>${displayWins}</td><td>${rate}%</td></tr>`;
     }).join('');
 }
 
@@ -990,7 +999,7 @@ let currentBookingType = '';
 const openBookingModal = (type) => {
     currentBookingType = type;
     const candidates = players.filter(p => !p.bookingId && !p.isResting).sort((a,b) => a.joinedQueueAt - b.joinedQueueAt);
-    const options = candidates.map(p => `<option value="${p.id}">${p.name}${p.status === 'playing' ? ' (กำลังเล่น)' : ''}</option>`).join('');
+    const options = candidates.map(p => `<option value="${p.id}">${sanitizeHTML(p.name)}${p.status === 'playing' ? ' (กำลังเล่น)' : ''}</option>`).join('');
     let html = '';
     if (type === 'pair') {
         html += `<h4>👥 จองคู่</h4><label>คนแรก:</label><select id="b-p1" style="width:100%; margin-bottom:10px;">${options}</select><label>คนที่สอง:</label><select id="b-p2" style="width:100%; margin-bottom:10px;">${options}</select>`;
@@ -1050,11 +1059,10 @@ function updateQueueDisplay() {
         const defaultAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(p.name)}&background=random&color=fff`;
         const avatarImg = p.avatarUrl ? p.avatarUrl : defaultAvatar;
         // โค้ดใหม่:
-const avatarHtml = `<img src="${avatarImg}" class="mini-avatar" style="margin-right: 5px; cursor: zoom-in;" onclick="event.stopPropagation(); showBigImage('${avatarImg}', '${p.name}')">`;
+const safeName = sanitizeHTML(p.name);
+const avatarHtml = `<img src="${avatarImg}" class="mini-avatar" style="margin-right: 5px; cursor: zoom-in;" onclick="event.stopPropagation(); showBigImage('${avatarImg}', '${safeName}')">`;
 
-        // 👇 แล้วเอา avatarHtml ไปยัดใส่ตรงหน้าชื่อ (หลัง genderBadge)
-        return `<li class="${itemClass}" style="${opacityStyle}"><div class="player-info">${!p.isResting ? levelBadge + genderBadge : ''}${avatarHtml}<strong>${namePrefix}${p.name}</strong>${p.bookingId ? `<small onclick="cancelBooking('${p.bookingId}')" style="cursor:pointer;">🔒</small>` : ''}${waitBadge}</div><button class="mini-btn ${p.isResting ? 'success' : 'secondary'}" style="margin-right:5px;" onclick="toggleRest(${p.id})">${p.isResting ? 'ตื่น' : '💤'}</button><button class="mini-btn danger" onclick="removePlayer(${p.id})">×</button></li>`;
-    }).join('');
+return `<li class="${itemClass}" style="${opacityStyle}"><div class="player-info">${!p.isResting ? levelBadge + genderBadge : ''}${avatarHtml}<strong>${namePrefix}${safeName}</strong>${p.bookingId ? `<small onclick="cancelBooking('${p.bookingId}')" style="cursor:pointer;">🔒</small>` : ''}${waitBadge}</div><button class="mini-btn ${p.isResting ? 'success' : 'secondary'}" style="margin-right:5px;" onclick="toggleRest(${p.id})">${p.isResting ? 'ตื่น' : '💤'}</button><button class="mini-btn danger" onclick="removePlayer(${p.id})">×</button></li>`;
     
     updateNextMatchPanel();
 }
