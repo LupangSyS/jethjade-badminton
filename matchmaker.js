@@ -1,3 +1,6 @@
+// ===============================================================
+// 🧠 Core AI: ฟังก์ชันดึงคิวอัจฉริยะ (อัปเกรด V.Wave เต็มระบบ)
+// ===============================================================
 function getSmartDraft(count, excludeIds = new Set(), existingPlayers = [], isForce = false, rankFilter = null) {
     let pool = players.filter(p => p.status === 'waiting' && !p.isResting && !excludeIds.has(p.id));
     
@@ -22,13 +25,14 @@ function getSmartDraft(count, excludeIds = new Set(), existingPlayers = [], isFo
 
     const head = pool[0];
     
-    // 🚨 กฎเหล็ก Anti-Starvation: ถ้า C โดนสคิปมาแล้ว (skipCount >= 1) บังคับลงทันที ห้ามสคิปซ้ำ! 🚨
+    // 🚨 กฎเหล็ก Anti-Starvation: ถ้าคนแรกโดนสคิปมาแล้ว (skipCount >= 1) บังคับลงทันที ห้ามสคิปซ้ำ!
     if (head && head.skipCount >= 1 && !isForce) {
         let team = tryBuildTeam(head, pool, count, existingPlayers, true, targetScore, false, targetMMR);
         if (team.length === count) return team; 
     }
 
-    if (isMMRMode && !isForce) {
+    // ⚖️ MMR Mode (ปกติ)
+    if (typeof isMMRMode !== 'undefined' && isMMRMode && !isForce) {
         let captain = pool[0];
         let team = tryBuildTeam(captain, pool, count, existingPlayers, false, targetScore, false, targetMMR);
         if (team.length === count) return team;
@@ -37,8 +41,10 @@ function getSmartDraft(count, excludeIds = new Set(), existingPlayers = [], isFo
 
     // 🌊 โหมดหนีเจ้ากรรมนายเวร V.Wave (ทุบซอมบี้ตอนจัดคอร์ทใหม่ 4 คนรวด!) 🌊
     if (typeof isAntiDejaVuMode !== 'undefined' && isAntiDejaVuMode && existingPlayers.length === 0 && count === 4 && !isForce) {
-        let poolSize = Math.min(pool.length, 6); // ขยายกรวย ดึงมา 6 คน
+        
+        let poolSize = Math.min(pool.length, 8); // ขยายกรวย ดึงมา 8 คน
         let draftPool = pool.slice(0, poolSize);
+        let starvedPlayers = draftPool.filter(p => p.skipCount >= 1);
 
         if (draftPool.length >= 4) {
             let bestTeam = null;
@@ -51,7 +57,14 @@ function getSmartDraft(count, excludeIds = new Set(), existingPlayers = [], isFo
                             let candidateTeam = [draftPool[i], draftPool[j], draftPool[k], draftPool[l]];
                             let penaltyScore = 0;
 
-                            // 1. ป้องกันการฉีกคู่ Booking
+                            // กฎเหล็ก: ทีมต้องมีคนที่คอยนานรวมอยู่ด้วย
+                            let missingStarved = 0;
+                            starvedPlayers.forEach(sp => {
+                                if (!candidateTeam.some(p => p.id === sp.id)) missingStarved++;
+                            });
+                            penaltyScore += (missingStarved * 100000);
+
+                            // ป้องกันการฉีกคู่ Booking
                             let hasBrokenBooking = false;
                             candidateTeam.forEach(p => {
                                 if (p.bookingId) {
@@ -62,22 +75,21 @@ function getSmartDraft(count, excludeIds = new Set(), existingPlayers = [], isFo
                             });
                             if (hasBrokenBooking) penaltyScore += 9999999;
 
-                            // 2. ให้ระบบมึงแบ่งทีมที่สมดุลสุดก่อน (2-2)
                             let combo = autoBalanceTeam(candidateTeam);
                             let t1 = [combo[0], combo[1]];
                             let t2 = [combo[2], combo[3]];
 
-                            // 3. เช็คเดจาวู (คู่และแข่ง) จากฟังก์ชันเดิมของมึง!
+                            // เช็คเดจาวู
                             let getMeetCount = (pA, pB) => getPairCount(pA.id, pB.id) + getOpponentCount(pA.id, pB.id);
                             const pairs = [[0,1], [0,2], [0,3], [1,2], [1,3], [2,3]];
                             
                             pairs.forEach(idx => {
                                 let meets = getMeetCount(combo[idx[0]], combo[idx[1]]);
-                                if (meets === 1) penaltyScore += 500; // เคยเจอ 1 ครั้ง (หยวนๆ)
-                                else if (meets >= 2) penaltyScore += 5000; // เคยเจอ 2 ครั้ง (ประหารทิ้ง!)
+                                if (meets === 1) penaltyScore += 500; 
+                                else if (meets >= 2) penaltyScore += 5000; 
                             });
 
-                            // 4. หักคะแนนความห่าง MMR / Rank
+                            // หักคะแนนความห่าง MMR / Rank
                             if (typeof isMMRMode !== 'undefined' && isMMRMode) {
                                 let diff = Math.abs(((t1[0].mmr||0)+(t1[1].mmr||0)) - ((t2[0].mmr||0)+(t2[1].mmr||0)));
                                 penaltyScore += diff * 10;
@@ -87,7 +99,7 @@ function getSmartDraft(count, excludeIds = new Set(), existingPlayers = [], isFo
                                 penaltyScore += Math.abs(score1 - score2) * 100;
                             }
 
-                            // 5. ปรับสมดุลเวลารอคิว (กันดองคิวลึก)
+                            // ปรับสมดุลเวลารอคิว
                             penaltyScore += (i + j + k + l) * 5;
 
                             if (penaltyScore < minPenalty) {
@@ -97,9 +109,7 @@ function getSmartDraft(count, excludeIds = new Set(), existingPlayers = [], isFo
                         }
                     }
                 }
-
-                // ถ้าเจอทีมที่ไม่ซ้ำหน้าเกิน 2 ครั้ง (คะแนนไม่ทะลุ 5000) ก็เอาทีมนี้แหละลง!
-                if (bestTeam && minPenalty < 5000) {
+                if (bestTeam) {
                     return bestTeam;
                 }
             }
@@ -121,7 +131,7 @@ function getSmartDraft(count, excludeIds = new Set(), existingPlayers = [], isFo
         for (let i = 0; i < candidates.length; i++) {
             let captain = candidates[i];
             
-            if (isRankedMode) {
+            if (typeof isRankedMode !== 'undefined' && isRankedMode) {
                  const capScore = RANK_SCORES[captain.level || 'BG'] || 1;
                  let isCompatible = true;
                  for(let ex of existingPlayers) {
@@ -141,7 +151,7 @@ function getSmartDraft(count, excludeIds = new Set(), existingPlayers = [], isFo
     // --- โหมดปกติ (ไล่จากคิวแรกตามเดิม) ---
     for (let i = 0; i < pool.length; i++) {
         let captain = pool[i];
-        if (!isForce && isRankedMode && existingPlayers.length > 0) {
+        if (!isForce && typeof isRankedMode !== 'undefined' && isRankedMode && existingPlayers.length > 0) {
              const capScore = RANK_SCORES[captain.level || 'BG'] || 1;
              let isCompatible = true;
              for(let ex of existingPlayers) {
